@@ -4,28 +4,28 @@ import socket
 import random
 import json
 import _bdsm
+from pyee import EventEmitter
+from threading import Thread
 
-
-# import _set_timeout
-
-
-class BdsdClient:
-    def __init__(self, sockfile, callback):
+class BdsdClient(EventEmitter, Thread):
+    def __init__(self, sockfile):
+        # super(BdsdClient, self).__init__()
+        EventEmitter.__init__(self)
+        Thread.__init__(self)
         self._requests = []
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sockfile = sockfile
-        self.connectedCallback = callback
-        print('BdsdClient: connecting to: ' + sockfile)
-        connected = False
-        while not connected:
+        print('BdsdClient: connecting to: ' + self.sockfile)
+        _connected = False
+        while not _connected:
             try:
                 self.sock.connect(self.sockfile)
-                connected = True
+                _connected = True
             except socket.error as msg:
                 # print(msg)
                 pass
+    def run(self):
         self._processIncomingMessages()
-
     def _sendData(self, data):
         msg = _bdsm.compose(data)
         self.sock.sendall(msg)
@@ -54,6 +54,15 @@ class BdsdClient:
         msgStr = json.dumps(msg)
         self._sendData(msgStr)
 
+    def _prosessIncomingNotify(self, response):
+        payload = response['payload']
+        if payload == 'bus connected':
+            print('emitting connected event')
+            self.emit('connected', self)
+
+        pass
+    def _processIncomingResponse(self, response):
+        pass
     def _processIncomingMessages(self):
         while True:
             try:
@@ -61,26 +70,41 @@ class BdsdClient:
                 parsed = _bdsm.parse(data)
                 print(parsed[2])
                 response = json.loads(parsed[2])
-                print(response['method'])
+                method = response['method']
+                payload = response['payload']
+                if method == 'notify':
+                    self._prosessIncomingNotify(response)
+                else:
+                    self._processIncomingResponse(response)
 
+                # TODO: parse response
                 # print(response['response_id'])
                 # TODO: callback from self._requests
+            except socket.error:
+                #print('error')
+                pass
+            except socket.timeout:
+                #print('timeout')
+                pass
             except IOError as e:
                 pass
 
 
-def processSetValue(err, res):
-    print(err)
-    print(res)
-
-
-def connected(client):
-    print('Connected to: ' + client.sockfile)
-    client.setValue(101, False, processSetValue)
-
-
 SOCKFILE = os.environ.copy()['XDG_RUNTIME_DIR'] + '/bdsd.sock'
-mySock = BdsdClient(SOCKFILE, connected)
+mySock = BdsdClient(SOCKFILE)
+mySock.start()
+print('hello')
+
+def test():
+    print("test")
+
+def connected_handler(client):
+    print('Connected to: ' + client.sockfile)
+    mySock.setValue(101, 0, test)
+
+print('register connected handler')
+mySock.on('connected', connected_handler)
+
 
 # def setValue(id, value):
 #     request_id = random.random()*1000
