@@ -1,19 +1,27 @@
 import os
 import sys
+import signal
 import socket
 import random
 import json
 import _bdsm
 from pyee import EventEmitter
-from threading import Thread
 
-class BdsdClient(EventEmitter, Thread):
+
+
+class BdsdClient(EventEmitter):
     def __init__(self, sockfile):
         # super(BdsdClient, self).__init__()
         EventEmitter.__init__(self)
-        Thread.__init__(self)
+        # StoppableThread.__init__(self)
+
+        self._should_be_killed = False
+        signal.signal(signal.SIGINT, self._kill)
+        signal.signal(signal.SIGTERM, self._kill)
+
         self._requests = []
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.setblocking(0)
         self.sockfile = sockfile
         print('BdsdClient: connecting to: ' + self.sockfile)
         _connected = False
@@ -21,9 +29,13 @@ class BdsdClient(EventEmitter, Thread):
             try:
                 self.sock.connect(self.sockfile)
                 _connected = True
+                self._processIncomingMessages()
             except socket.error as msg:
                 # print(msg)
                 pass
+    def _kill(self, signum, frame):
+        print('should be killed soon')
+        self._should_be_killed = True
     def run(self):
         self._processIncomingMessages()
     def _sendData(self, data):
@@ -65,8 +77,11 @@ class BdsdClient(EventEmitter, Thread):
         pass
     def _processIncomingMessages(self):
         while True:
+            if self._should_be_killed:
+                print('trying to kill')
+                break
             try:
-                data = self.sock.recv(2048)
+                data = self.sock.recv(1048)
                 parsed = _bdsm.parse(data)
                 print(parsed[2])
                 response = json.loads(parsed[2])
@@ -76,7 +91,6 @@ class BdsdClient(EventEmitter, Thread):
                     self._prosessIncomingNotify(response)
                 else:
                     self._processIncomingResponse(response)
-
                 # TODO: parse response
                 # print(response['response_id'])
                 # TODO: callback from self._requests
@@ -92,7 +106,7 @@ class BdsdClient(EventEmitter, Thread):
 
 SOCKFILE = os.environ.copy()['XDG_RUNTIME_DIR'] + '/bdsd.sock'
 mySock = BdsdClient(SOCKFILE)
-mySock.start()
+# mySock.start()
 print('hello')
 
 def test():
