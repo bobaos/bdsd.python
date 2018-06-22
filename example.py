@@ -1,5 +1,4 @@
 import os
-import asyncore
 from bdsd_async import BDSDClient
 
 SOCKFILE = os.environ.copy()['XDG_RUNTIME_DIR'] + '/bdsd.sock'
