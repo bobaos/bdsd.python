@@ -1,8 +1,5 @@
 import asyncore
 import socket
-import os
-import sys
-import signal
 import random
 import json
 import _bdsm
@@ -14,9 +11,11 @@ class BDSDClient(asyncore.dispatcher, EventEmitter):
         asyncore.dispatcher.__init__(self)
         EventEmitter.__init__(self)
 
+        self._requests = []
         self.create_socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connect(path)
-
+    def loop(self):
+        asyncore.loop()
     def handle_connect(self):
         pass
 
@@ -27,18 +26,27 @@ class BDSDClient(asyncore.dispatcher, EventEmitter):
         payload = response['payload']
         if payload == 'bus connected':
             self.emit('connected')
+
     def _handleIncomingValue(self, response):
         payload = response['payload']
         self.emit('value', payload)
+
     def _handleIncomingResponse(self, response):
         # TODO: find origin request and callback
+        for responseEmitter in self._requests:
+            if responseEmitter.id == response['response_id']:
+                index = self._requests.index(responseEmitter)
+                # TODO: check for errors
+                if response['success']:
+                    responseEmitter.emit('success', response['payload'])
+                else:
+                    responseEmitter.emit('error', response['error'])
+            self._requests.pop(index)
         pass
 
     def handle_read(self):
         data = self.recv(8192)
-        print(data)
         parsed = _bdsm.parse(data)
-        print(parsed[2])
         response = json.loads(parsed[2])
         method = response['method']
         if method == 'notify':
@@ -66,38 +74,75 @@ class BDSDClient(asyncore.dispatcher, EventEmitter):
         data['payload'] = payload
         return data
 
-    def setValue(self, id, value, cb):
+    def getDatapoints(self):
         # define request
-        print('set value')
+        method = 'get datapoints'
+        payload = {}
+        # compose and send
+        msg = self._composeDataStr(method, payload)
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
+        msgStr = json.dumps(msg)
+        self._sendData(msgStr)
+        return responseEmitter
+    def getDescription(self, id):
+        method = 'get description'
+        payload = {}
+        payload['id'] = id
+        msg = self._composeDataStr(method, payload)
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
+        msgStr = json.dumps(msg)
+        self._sendData(msgStr)
+        return responseEmitter
+    def setValue(self, id, value):
+        # define request
         method = 'set value'
         payload = {}
         payload['id'] = id
         payload['value'] = value
         # compose and send
         msg = self._composeDataStr(method, payload)
-        # request = msg['request_id'], cb
-        # self._requests.append(request)
-        # print(request)
-        # print(request)
-        # TODO: register callback in self._requests
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
         msgStr = json.dumps(msg)
         self._sendData(msgStr)
+        return responseEmitter
+    def getValue(self, id):
+        method = 'get value'
+        payload = {}
+        payload['id'] = id
+        msg = self._composeDataStr(method, payload)
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
+        msgStr = json.dumps(msg)
+        self._sendData(msgStr)
+        return responseEmitter
+    def getStoredValue(self, id):
+        method = 'get stored value'
+        payload = {}
+        payload['id'] = id
+        msg = self._composeDataStr(method, payload)
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
+        msgStr = json.dumps(msg)
+        self._sendData(msgStr)
+        return responseEmitter
+    def readValue(self, id):
+        method = 'read value'
+        payload = {}
+        payload['id'] = id
+        msg = self._composeDataStr(method, payload)
+        responseEmitter = EventEmitter()
+        responseEmitter.id = msg['request_id']
+        self._requests.append(responseEmitter)
+        msgStr = json.dumps(msg)
+        self._sendData(msgStr)
+        return responseEmitter
 
-SOCKFILE = os.environ.copy()['XDG_RUNTIME_DIR'] + '/bdsd.sock'
-myClient = BDSDClient(SOCKFILE)
-print('starting async')
 
-
-@myClient.on('connected')
-def handle_connected():
-    print('myClient is connected, great then')
-    myClient.setValue(103, False, 1)
-
-
-@myClient.on('value')
-def handle_broadcasted_value(data):
-    print('broadcasted value')
-    print(data)
-
-
-asyncore.loop()
